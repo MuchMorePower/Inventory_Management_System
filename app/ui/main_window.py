@@ -14,12 +14,11 @@ class MainWindow(ctk.CTk):
         super().__init__()
         self.inventory_manager = inventory_manager
 
-        # --- 【关键修改 1: 设立“一键调节”的总控制开关】 ---
+        # --- 【所有尺寸都基于 base_size 派生】 ---
         # 只需修改下面这个变量，就能统一调整所有UI元素的大小
-        # 推荐值范围: 13 (紧凑), 15 (默认), 18 (较大)
         base_size = 8
 
-        # --- 自动DPI缩放 (这部分保持不变，它负责适配不同显示器的系统缩放) ---
+        # --- 自动DPI缩放 (负责适配不同显示器的系统缩放) ---
         ctk.set_widget_scaling(ctk.ScalingTracker.get_window_scaling(self))
         ctk.set_window_scaling(ctk.ScalingTracker.get_window_scaling(self))
         scale_factor = ctk.ScalingTracker.get_window_scaling(self)
@@ -28,7 +27,7 @@ class MainWindow(ctk.CTk):
         self.state('zoomed')
         self.minsize(800, 500) # 将最小尺寸调大一点以适应更大的基础尺寸
 
-        # --- 【关键修改 2: 所有尺寸都基于 base_size 派生】 ---
+        
         font_style = "Microsoft YaHei UI"
         
         # 1. CustomTkinter 控件的字体 (使用基础尺寸)
@@ -49,91 +48,100 @@ class MainWindow(ctk.CTk):
         search_button_width = int(base_size * 2.0)
         date_button_width = int(base_size * 2.0)
 
-        # 4. 【新增：控制顶部操作按钮的尺寸】
-        #    高度是字体大小的倍数，宽度也一样，这样可以保持比例
+        # 控制顶部操作按钮的尺寸
         action_button_height = int(base_size * 2.5)
-        action_button_width = int(base_size * 4.2) # 给一个统一的宽度，确保最长的文字也能放下
+        action_button_width = int(base_size * 4.5) # 给一个统一的宽度，确保最长的文字也能放下
 
-        # --- 后续代码使用上面计算出的变量 ---
+        # 5. 【控制所有填充/间距 (Padding)】
+        # 定义几个标准的基础间距值
+        pad_small_base = 3
+        pad_standard_base = 5
+        pad_large_base = 10
+        # 根据系统缩放因子计算出最终使用的间距
+        pad_s = int(pad_small_base * scale_factor * 0.8)
+        pad_m = int(pad_standard_base * scale_factor * 0.4)
+        pad_l = int(pad_large_base * scale_factor * 0.4)
+
+        
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
         self.main_frame = ctk.CTkFrame(self)
-        self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.main_frame.pack(fill="both", expand=True, padx=pad_l, pady=pad_l)
         self.top_frame = ctk.CTkFrame(self.main_frame)
-        self.top_frame.pack(fill="x", pady=(0, 10))
+        self.top_frame.pack(fill="x", pady=(0, pad_l))
         self.middle_frame = ctk.CTkFrame(self.main_frame)
         self.middle_frame.pack(fill="both", expand=True)
         self.bottom_frame = ctk.CTkFrame(self.main_frame)
-        self.bottom_frame.pack(fill="x", pady=(10, 0))
+        self.bottom_frame.pack(fill="x", pady=(pad_l, 0))
 
-       # --- 【关键修改：在创建按钮时传入 width 和 height】 ---
+      
         self.top_frame.grid_columnconfigure(1, weight=1)
         action_button_frame = ctk.CTkFrame(self.top_frame)
-        action_button_frame.grid(row=0, column=0, padx=(0, 10), pady=5, sticky="w")
+        action_button_frame.grid(row=0, column=0, padx=(0, pad_l), pady=pad_m, sticky="w")
 
         # 所有按钮都使用统一的 button_font
         # 为所有按钮应用统一、可控的尺寸
         self.btn_inbound = ctk.CTkButton(action_button_frame, text="商品入库", command=self.open_inbound_dialog, font=button_font, 
                                         width=action_button_width, height=action_button_height)
-        self.btn_inbound.pack(side="left", padx=5)
+        self.btn_inbound.pack(side="left", padx=pad_m)
 
         self.btn_outbound = ctk.CTkButton(action_button_frame, text="商品出库", command=self.open_outbound_dialog, font=button_font, 
                                         width=action_button_width, height=action_button_height)
-        self.btn_outbound.pack(side="left", padx=5)
+        self.btn_outbound.pack(side="left", padx=pad_m)
 
         self.btn_import_excel = ctk.CTkButton(action_button_frame, text="导入Excel", command=self.import_from_excel_dialog, font=button_font, 
                                             fg_color="green", hover_color="#006400", 
                                             width=action_button_width, height=action_button_height)
-        self.btn_import_excel.pack(side="left", padx=5)
+        self.btn_import_excel.pack(side="left", padx=pad_m)
 
         self.btn_export_excel = ctk.CTkButton(action_button_frame, text="导出Excel", command=self.export_to_excel_dialog, font=button_font, 
                                             fg_color="#005792", hover_color="#003961", 
                                             width=action_button_width, height=action_button_height)
-        self.btn_export_excel.pack(side="left", padx=5)
+        self.btn_export_excel.pack(side="left", padx=pad_m)
 
         self.btn_export_selected = ctk.CTkButton(action_button_frame, text="导出选中", command=self.export_selected_dialog, font=button_font, 
                                                 fg_color="#C05A00", hover_color="#8C4000", 
                                                 width=action_button_width, height=action_button_height)
-        self.btn_export_selected.pack(side="left", padx=5)
+        self.btn_export_selected.pack(side="left", padx=pad_m)
 
         self.btn_show_summary = ctk.CTkButton(action_button_frame, text="库存汇总", command=self.show_product_summary, font=button_font, 
                                             width=action_button_width, height=action_button_height)
-        self.btn_show_summary.pack(side="left", padx=5)
+        self.btn_show_summary.pack(side="left", padx=pad_m)
         
         self.btn_show_all_transactions = ctk.CTkButton(action_button_frame, text="全部记录", command=self.load_all_transactions_view, font=button_font, 
                                                         width=action_button_width, height=action_button_height)
-        self.btn_show_all_transactions.pack(side="left", padx=5)
+        self.btn_show_all_transactions.pack(side="left", padx=pad_m)
 
         
 
         # Part 2: 右侧的筛选器区域
         filter_frame = ctk.CTkFrame(self.top_frame)
-        filter_frame.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+        filter_frame.grid(row=0, column=1, padx=pad_l, pady=pad_m, sticky="ew")
         filter_frame.grid_columnconfigure((1, 3), weight=1)
 
-        # --- 【本次核心修复：为右侧所有控件应用统一高度】 ---
+        
         self.label_filter_name = ctk.CTkLabel(filter_frame, text="项目名称:", font=label_font)
-        self.label_filter_name.grid(row=0, column=0, padx=(5,0), sticky="w")
+        self.label_filter_name.grid(row=0, column=0, padx=(pad_m,0), sticky="w")
         
         self.entry_filter_name = ctk.CTkEntry(filter_frame, placeholder_text="筛选项目名称...", font=entry_font, 
                                             height=action_button_height) # <-- 应用高度
-        self.entry_filter_name.grid(row=0, column=1, padx=5, sticky="ew")
+        self.entry_filter_name.grid(row=0, column=1, padx=pad_m, sticky="ew")
         
         self.label_filter_model = ctk.CTkLabel(filter_frame, text="规格型号:", font=label_font)
-        self.label_filter_model.grid(row=0, column=2, padx=(10,0), sticky="w")
+        self.label_filter_model.grid(row=0, column=2, padx=(pad_l,0), sticky="w")
         
         self.entry_filter_model = ctk.CTkEntry(filter_frame, placeholder_text="筛选规格型号...", font=entry_font, 
                                             height=action_button_height) # <-- 应用高度
-        self.entry_filter_model.grid(row=0, column=3, padx=5, sticky="ew")
+        self.entry_filter_model.grid(row=0, column=3, padx=pad_m, sticky="ew")
         
         self.btn_filter_search = ctk.CTkButton(filter_frame, text="筛选", width=search_button_width, command=self.filter_records, font=button_font, 
                                             height=action_button_height) # <-- 应用高度
-        self.btn_filter_search.grid(row=0, column=4, padx=5)
+        self.btn_filter_search.grid(row=0, column=4, padx=pad_m)
         
         self.btn_date_search = ctk.CTkButton(filter_frame, text="按日期查", width=date_button_width, command=self.open_date_query_dialog, font=button_font, 
                                             height=action_button_height) # <-- 应用高度
-        self.btn_date_search.grid(row=0, column=5, padx=5)
+        self.btn_date_search.grid(row=0, column=5, padx=pad_m)
 
         self.tree_style = ttk.Style()
         self.tree_style.theme_use("default")
@@ -168,9 +176,9 @@ class MainWindow(ctk.CTk):
         self.context_menu = ctk.CTkFrame(self, border_width=1)
         
         self.status_label = ctk.CTkLabel(self.bottom_frame, text="状态: 就绪", anchor="w", font=label_font)
-        self.status_label.pack(side="left", padx=10, pady=5)
+        self.status_label.pack(side="left", padx=pad_l, pady=pad_m)
         self.selected_total_label = ctk.CTkLabel(self.bottom_frame, text="选中总金额: 0.00", anchor="e", font=label_font)
-        self.selected_total_label.pack(side="right", padx=10, pady=5)
+        self.selected_total_label.pack(side="right", padx=pad_l, pady=pad_m)
         
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         

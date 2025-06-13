@@ -220,12 +220,22 @@ def get_product_summary():
     conn = get_db_connection()
     cursor = conn.cursor()
     # 只统计未撤销的交易
+    # cursor.execute("""
+    # SELECT product_name, model_number, unit, SUM(quantity) as current_stock
+    # FROM transactions
+    # WHERE is_undone = 0
+    # GROUP BY product_name, model_number, unit
+    # HAVING current_stock != 0 -- 可以只显示有库存的
+    # ORDER BY product_name, model_number
+    # """)
+
+    # 这里不使用 HAVING，因为我们希望显示所有商品，即使当前库存为0
+    # group by 语句可能要进行修改，因为product_name 和 unit 可能会有多个名称
     cursor.execute("""
     SELECT product_name, model_number, unit, SUM(quantity) as current_stock
     FROM transactions
     WHERE is_undone = 0
     GROUP BY product_name, model_number, unit
-    HAVING current_stock != 0 -- 可以只显示有库存的
     ORDER BY product_name, model_number
     """)
     summary = cursor.fetchall()
