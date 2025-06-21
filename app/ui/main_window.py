@@ -3,9 +3,11 @@ import customtkinter as ctk
 from tkinter import ttk # For Treeview
 import tkinter.messagebox as tkmb
 from tkinter import filedialog
-from .dialogs import TransactionDialog, DateQueryDialog
+from .dialogs import TransactionDialog, SettingsDialog, AdvancedFilterDialog
 from app.core.inventory import InventoryManager
+from app.core import config_manager
 from datetime import datetime
+import tkinter as tk
 
 class MainWindow(ctk.CTk):
 
@@ -13,6 +15,9 @@ class MainWindow(ctk.CTk):
     def __init__(self, inventory_manager: InventoryManager):
         super().__init__()
         self.inventory_manager = inventory_manager
+        self.active_filters = {}
+        self.company_name = config_manager.load_company_name()
+        self.title(f"商品管理系统 - {self.company_name}" if self.company_name else "商品管理系统")
 
         # --- 【所有尺寸都基于 base_size 派生】 ---
         # 只需修改下面这个变量，就能统一调整所有UI元素的大小
@@ -23,7 +28,7 @@ class MainWindow(ctk.CTk):
         ctk.set_window_scaling(ctk.ScalingTracker.get_window_scaling(self))
         scale_factor = ctk.ScalingTracker.get_window_scaling(self)
 
-        self.title("商品管理系统 (响应式布局版)")
+        
         self.state('zoomed')
         self.minsize(800, 500) # 将最小尺寸调大一点以适应更大的基础尺寸
 
@@ -62,6 +67,8 @@ class MainWindow(ctk.CTk):
         pad_m = int(pad_standard_base * scale_factor * 0.4)
         pad_l = int(pad_large_base * scale_factor * 0.4)
 
+        btn_kwargs = {"font": button_font, "width": action_button_width, "height": action_button_height}
+
         
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
@@ -79,6 +86,16 @@ class MainWindow(ctk.CTk):
         self.top_frame.grid_columnconfigure(1, weight=1)
         action_button_frame = ctk.CTkFrame(self.top_frame)
         action_button_frame.grid(row=0, column=0, padx=(0, pad_l), pady=pad_m, sticky="w")
+
+        # --- 新增：创建菜单栏 ---
+        self.menu_bar = tk.Menu(self)
+        self.config(menu=self.menu_bar)
+        
+        file_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="文件", menu=file_menu)
+        file_menu.add_command(label="设置...", command=self.open_settings_dialog)
+        file_menu.add_separator()
+        file_menu.add_command(label="退出", command=self.quit)
 
         # 所有按钮都使用统一的 button_font
         # 为所有按钮应用统一、可控的尺寸
@@ -115,34 +132,16 @@ class MainWindow(ctk.CTk):
 
         
 
-        # Part 2: 右侧的筛选器区域
-        filter_frame = ctk.CTkFrame(self.top_frame)
-        filter_frame.grid(row=0, column=1, padx=pad_l, pady=pad_m, sticky="ew")
-        filter_frame.grid_columnconfigure((1, 3), weight=1)
+        # --- 高级筛选UI ---
+        advanced_filter_frame = ctk.CTkFrame(self.top_frame)
+        advanced_filter_frame.grid(row=0, column=1, padx=pad_m, pady=pad_m, sticky="e") # 使用 grid 并靠右对齐
 
-        
-        self.label_filter_name = ctk.CTkLabel(filter_frame, text="项目名称:", font=label_font)
-        self.label_filter_name.grid(row=0, column=0, padx=(pad_m,0), sticky="w")
-        
-        self.entry_filter_name = ctk.CTkEntry(filter_frame, placeholder_text="筛选项目名称...", font=entry_font, 
-                                            height=action_button_height) # <-- 应用高度
-        self.entry_filter_name.grid(row=0, column=1, padx=pad_m, sticky="ew")
-        
-        self.label_filter_model = ctk.CTkLabel(filter_frame, text="规格型号:", font=label_font)
-        self.label_filter_model.grid(row=0, column=2, padx=(pad_l,0), sticky="w")
-        
-        self.entry_filter_model = ctk.CTkEntry(filter_frame, placeholder_text="筛选规格型号...", font=entry_font, 
-                                            height=action_button_height) # <-- 应用高度
-        self.entry_filter_model.grid(row=0, column=3, padx=pad_m, sticky="ew")
-        
-        self.btn_filter_search = ctk.CTkButton(filter_frame, text="筛选", width=search_button_width, command=self.filter_records, font=button_font, 
-                                            height=action_button_height) # <-- 应用高度
-        self.btn_filter_search.grid(row=0, column=4, padx=pad_m)
-        
-        self.btn_date_search = ctk.CTkButton(filter_frame, text="按日期查", width=date_button_width, command=self.open_date_query_dialog, font=button_font, 
-                                            height=action_button_height) # <-- 应用高度
-        self.btn_date_search.grid(row=0, column=5, padx=pad_m)
+        self.btn_advanced_filter = ctk.CTkButton(advanced_filter_frame, text="高级筛选...", command=self.open_advanced_filter_dialog, **btn_kwargs)
+        self.btn_advanced_filter.pack(side="left", padx=pad_m)
+        self.btn_clear_filter = ctk.CTkButton(advanced_filter_frame, text="清除筛选", command=self.clear_all_filters, fg_color="gray", **btn_kwargs)
+        self.btn_clear_filter.pack(side="left", padx=pad_m)
 
+        # --- Treeview 设置 ---
         self.tree_style = ttk.Style()
         self.tree_style.theme_use("default")
         
@@ -189,45 +188,32 @@ class MainWindow(ctk.CTk):
 
     def setup_transactions_view(self):
         self.current_view_mode = "transactions"
-        self.tree['columns'] = ("ID", "日期", "项目名称", "规格型号", 
-                                "单位", "类型", "数量", "单价", 
-                                "总金额", "状态", "备注", "原始时间")
+        self.tree['columns'] = ("ID", "日期", "项目名称", "规格型号", "购买方", "销售方", 
+                                "单位", "类型", "数量", "单价", "总金额", )
         
-        # --- 【本次核心修复】 ---
+        
         # 获取系统缩放因子，用于计算列宽
         scale_factor = ctk.ScalingTracker.get_window_scaling(self) * 0.9
 
         # 定义基础列宽，然后乘以缩放因子得到最终宽度
-        # --- 【关键修改: 全面减小基础列宽】 ---
+       
+
         self.tree.column("#0", width=0, stretch=ctk.NO)
-        self.tree.column("ID", anchor=ctk.W, width=int(50 * scale_factor), minwidth=int(35 * scale_factor))
-        self.tree.column("日期", anchor=ctk.W, width=int(110 * scale_factor), minwidth=int(90 * scale_factor))
+        self.tree.column("ID", anchor=ctk.W, width=int(30 * scale_factor), minwidth=int(25 * scale_factor))
+        self.tree.column("日期", anchor=ctk.W, width=int(85 * scale_factor), minwidth=int(75 * scale_factor))
         self.tree.column("项目名称", anchor=ctk.W, width=int(160 * scale_factor), minwidth=int(120 * scale_factor))
         self.tree.column("规格型号", anchor=ctk.W, width=int(140 * scale_factor), minwidth=int(100 * scale_factor))
-        self.tree.column("单位", anchor=ctk.CENTER, width=int(60 * scale_factor), minwidth=int(40 * scale_factor))
-        self.tree.column("类型", anchor=ctk.CENTER, width=int(70 * scale_factor), minwidth=int(50 * scale_factor))
-        self.tree.column("数量", anchor=ctk.E, width=int(80 * scale_factor), minwidth=int(60 * scale_factor))
+        self.tree.column("购买方", anchor=ctk.W, width=int(150 * scale_factor), minwidth=int(120 * scale_factor))
+        self.tree.column("销售方", anchor=ctk.W, width=int(150 * scale_factor), minwidth=int(120 * scale_factor))
+        self.tree.column("单位", anchor=ctk.CENTER, width=int(30 * scale_factor), minwidth=int(26 * scale_factor))
+        self.tree.column("类型", anchor=ctk.CENTER, width=int(50 * scale_factor), minwidth=int(40 * scale_factor))
+        self.tree.column("数量", anchor=ctk.E, width=int(60 * scale_factor), minwidth=int(50 * scale_factor))
         self.tree.column("单价", anchor=ctk.E, width=int(90 * scale_factor), minwidth=int(70 * scale_factor))
         self.tree.column("总金额", anchor=ctk.E, width=int(100 * scale_factor), minwidth=int(80 * scale_factor))
-        self.tree.column("状态", anchor=ctk.CENTER, width=int(70 * scale_factor), minwidth=int(50 * scale_factor))
-        self.tree.column("备注", anchor=ctk.W, width=int(160 * scale_factor), minwidth=int(120 * scale_factor))
-        self.tree.column("原始时间", anchor=ctk.W, width=int(150 * scale_factor), minwidth=int(130 * scale_factor))
+        
 
-        self.tree.heading("#0", text="", anchor=ctk.W)
-        self.tree.heading("ID", text="ID", anchor=ctk.W)
-        self.tree.heading("日期", text="操作日期", anchor=ctk.W)
-        self.tree.heading("项目名称", text="项目名称", anchor=ctk.W)
-        self.tree.heading("规格型号", text="规格型号", anchor=ctk.W)
-        self.tree.heading("单位", text="单位", anchor=ctk.CENTER)
-        self.tree.heading("类型", text="类型", anchor=ctk.CENTER)
-        self.tree.heading("数量", text="数量", anchor=ctk.E)
-        self.tree.heading("单价", text="单价", anchor=ctk.E)
-        self.tree.heading("总金额", text="总金额", anchor=ctk.E)
-        self.tree.heading("状态", text="状态", anchor=ctk.CENTER)
-        self.tree.heading("备注", text="备注", anchor=ctk.W)
-        self.tree.heading("原始时间", text="记录时间", anchor=ctk.W)
-        self.clear_filters()
-
+        for col in self.tree['columns']:
+            self.tree.heading(col, text=col, anchor=ctk.W if col not in ['单位', '类型', '数量', '单价', '总金额'] else ctk.CENTER if col in ['单位', '类型'] else ctk.E)
 
     def setup_summary_view(self):
         self.current_view_mode = "summary"
@@ -247,37 +233,28 @@ class MainWindow(ctk.CTk):
         self.tree.heading("规格型号", text="规格型号", anchor=ctk.W)
         self.tree.heading("单位", text="单位", anchor=ctk.CENTER)
         self.tree.heading("当前库存", text="当前库存", anchor=ctk.E)
-        self.clear_filters()
-
+        
 
     def populate_treeview(self, data_rows):
-        # Clear existing data
         for item in self.tree.get_children():
             self.tree.delete(item)
         
-        # Populate with new data
         if self.current_view_mode == "transactions":
             for row in data_rows:
-                # Determine type and status for display
-                trans_type = "入库" if row['quantity'] > 0 else "出库"
-                status = "已撤销" if row['is_undone'] else "有效"
+                row_dict = dict(row)
+                trans_type = "入库" if row_dict['quantity'] > 0 else "出库"
+                status = "已撤销" if row_dict['is_undone'] else "有效"
                 
-                # Format numbers for display
-                quantity_display = abs(row['quantity']) # Display absolute quantity
-                unit_price_display = f"{row['unit_price']:.2f}"
-                total_amount_display = f"{row['total_amount']:.2f}"
-                
-                # Using row['id'] as the IID for the item
-                self.tree.insert(parent='', index='end', iid=row['id'], text="", 
-                                 values=(row['id'], row['insertion_date'], row['product_name'], 
-                                         row['model_number'], row['unit'], trans_type,
-                                         quantity_display, unit_price_display, total_amount_display,
-                                         status, row['notes'], row['transaction_time']))
-                if row['is_undone']: # Apply a tag for styling undone rows
-                    self.tree.item(row['id'], tags=('undone',))
-
-            # Configure tag for undone rows (e.g., strikethrough or different color)
-            # Note: ttk.Treeview strikethrough is not straightforward. Graying out text is easier.
+                values = (
+                    row_dict['id'], row_dict['insertion_date'], row_dict['product_name'], 
+                    row_dict['model_number'], row_dict.get('buyer', ''), row_dict.get('seller', ''),
+                    row_dict['unit'], trans_type, abs(row_dict['quantity']),
+                    f"{row_dict['unit_price']:.2f}", f"{row_dict['total_amount']:.2f}",
+                    status, row_dict['notes'], row_dict['transaction_time']
+                )
+                self.tree.insert(parent='', index='end', iid=row_dict['id'], text="", values=values)
+                if row_dict['is_undone']:
+                    self.tree.item(row_dict['id'], tags=('undone',))
             self.tree.tag_configure('undone', foreground='gray')
 
 
@@ -304,13 +281,25 @@ class MainWindow(ctk.CTk):
         self.populate_treeview(summary_data)
         self.status_label.configure(text="状态: 显示库存汇总")
 
+    def open_settings_dialog(self):
+        """打开设置对话框"""
+        dialog = SettingsDialog(self, current_name=self.company_name)
+        new_name = dialog.get_new_name()
+
+        if new_name is not None: # 仅当用户点击保存时才执行
+            config_manager.save_company_name(new_name)
+            self.company_name = new_name
+            self.title(f"商品管理系统 - {self.company_name}" if self.company_name else "商品管理系统")
+            tkmb.showinfo("成功", "公司名称已保存。", parent=self)
+
     def open_inbound_dialog(self):
-        dialog = TransactionDialog(self, title="商品入库", transaction_type="入库")
+        dialog = TransactionDialog(self, title="商品入库", transaction_type="入库", company_name=self.company_name)
         data = dialog.get_input_data()
         if data:
             success, message = self.inventory_manager.record_inbound(
                 data['product_name'], data['model_number'], data['unit'],
-                data['quantity'], data['unit_price'], data['insertion_date'], data['notes']
+                data['quantity'], data['unit_price'], data['insertion_date'], 
+                data['notes'], data['buyer'], data['seller']
             )
             if success:
                 tkmb.showinfo("成功", message, parent=self)
@@ -319,12 +308,13 @@ class MainWindow(ctk.CTk):
                 tkmb.showerror("失败", message, parent=self)
 
     def open_outbound_dialog(self):
-        dialog = TransactionDialog(self, title="商品出库", transaction_type="出库")
+        dialog = TransactionDialog(self, title="商品出库", transaction_type="出库", company_name=self.company_name)
         data = dialog.get_input_data()
         if data:
             success, message = self.inventory_manager.record_outbound(
                 data['product_name'], data['model_number'], data['unit'],
-                data['quantity'], data['unit_price'], data['insertion_date'], data['notes']
+                data['quantity'], data['unit_price'], data['insertion_date'], 
+                data['notes'], data['buyer'], data['seller']
             )
             if success:
                 tkmb.showinfo("成功", message, parent=self)
@@ -354,7 +344,6 @@ class MainWindow(ctk.CTk):
         #    tkmb.showerror("错误", "无法加载交易数据进行编辑。", parent=self)
         tkmb.showinfo("提示", "编辑功能：建议先撤销，再重新入库/出库。", parent=self)
 
-
     def on_double_click_item(self, event):
         if self.current_view_mode != "transactions": return
         
@@ -366,7 +355,6 @@ class MainWindow(ctk.CTk):
         item_id = selected_item_iid # We used DB ID as IID
         
         self.open_edit_dialog(item_id)
-
 
     def show_context_menu(self, event):
         """显示右键菜单"""
@@ -426,14 +414,12 @@ class MainWindow(ctk.CTk):
         # 绑定事件以在点击外部时隐藏菜单
         self.bind_all("<Button-1>", self.hide_context_menu_on_click_outside, add="+")
 
-
     def hide_context_menu_on_click_outside(self, event):
         # 检查点击是否在 context_menu 内部
         if not (self.context_menu.winfo_containing(event.x_root, event.y_root) == self.context_menu or \
            any(widget == self.context_menu.winfo_containing(event.x_root, event.y_root) for widget in self.context_menu.winfo_children())):
             self.context_menu.place_forget()
             self.unbind_all("<Button-1>") # 解绑，避免影响其他点击事件
-
 
     def undo_selected_transaction(self, transaction_id):
         self.context_menu.place_forget()
@@ -458,7 +444,6 @@ class MainWindow(ctk.CTk):
             tkmb.showinfo("结果", message, parent=self)
             if success:
                 self.refresh_current_view()
-
 
     def refresh_current_view(self):
         if self.current_view_mode == "transactions":
@@ -488,28 +473,47 @@ class MainWindow(ctk.CTk):
         self.populate_treeview(transactions)
         self.status_label.configure(text=f"状态: 筛选结果 (名称: '{name_filter}', 型号: '{model_filter}')")
 
-    def clear_filters(self):
-        self.entry_filter_name.delete(0, 'end')
-        self.entry_filter_model.delete(0, 'end')
+    def open_advanced_filter_dialog(self):
+        dialog = AdvancedFilterDialog(self, current_filters=self.active_filters)
+        filters = dialog.get_filters()
 
-    def open_date_query_dialog(self):
-        dialog = DateQueryDialog(self)
-        dates = dialog.get_query_dates()
-        if dates:
+        if filters is not None:
+            self.active_filters = filters
+            if not filters:
+                self.clear_all_filters()
+            else:
+                self.apply_advanced_filters()
+
+    def apply_advanced_filters(self):
+        if not self.active_filters:
+            self.load_all_transactions_view()
+            return
+            
+        transactions = self.inventory_manager.get_records_with_advanced_filter(self.active_filters)
+        self.populate_treeview(transactions)
+        self.status_label.configure(text=f"状态: 已应用 {len(self.active_filters)} 条高级筛选规则")
+
+    def clear_all_filters(self):
+        self.active_filters = {}
+        self.load_all_transactions_view()
+
+    def load_all_transactions_view(self):
+        # 如果有筛选规则，应该清除它们再加载全部
+        if self.active_filters:
+            self.clear_all_filters()
+        else:
             if self.current_view_mode != "transactions":
                 self.setup_transactions_view()
-            
-            transactions = self.inventory_manager.get_records_by_date(
-                year=dates.get('year'), month=dates.get('month'), day=dates.get('day')
-            )
+            transactions = self.inventory_manager.get_all_records(include_undone=True)
             self.populate_treeview(transactions)
-            
-            date_str_parts = []
-            if dates.get('year'): date_str_parts.append(f"年:{dates['year']}")
-            if dates.get('month'): date_str_parts.append(f"月:{dates['month']}")
-            if dates.get('day'): date_str_parts.append(f"日:{dates['day']}")
-            self.status_label.configure(text=f"状态: 按日期查询 ({', '.join(date_str_parts)})")
-            self.clear_filters()
+            self.status_label.configure(text="状态: 显示所有交易记录")
+
+    def refresh_current_view(self):
+        if self.current_view_mode == "transactions":
+            # 刷新时，重新应用当前激活的筛选规则
+            self.apply_advanced_filters()
+        elif self.current_view_mode == "summary":
+            self.show_product_summary()
 
     def on_tree_select(self, event):
         """当Treeview中的选择变化时调用"""

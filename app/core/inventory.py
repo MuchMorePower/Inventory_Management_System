@@ -7,24 +7,29 @@ class InventoryManager:
     def __init__(self):
         pass # data_manager is used directly via its functions
 
-    def record_inbound(self, product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes=""):
-        """记录入库"""
+    def record_inbound(self, product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes="", buyer="", seller=""):
+        """
+        记录入库
+        已更新，增加 buyer 和 seller 参数
+        """
         if quantity <= 0:
             return False, "入库数量必须大于0"
-        return data_manager.add_transaction(product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes), "入库成功"
-
-    def record_outbound(self, product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes=""):
-        """记录出库"""
+        # 入库时，我们记录的是销售方(seller)
+        result_id = data_manager.add_transaction(product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes, buyer, seller)
+        return (True, "入库成功") if result_id else (False, "数据库操作失败")
+    
+    def record_outbound(self, product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes="", buyer="", seller=""):
+        """
+        记录出库
+        已更新，增加 buyer 和 seller 参数
+        """
         if quantity <= 0:
             return False, "出库数量必须大于0"
         
-        # 检查库存 (可选，如果严格控制出库不能超量)
-        # current_stock = self.get_current_stock_for_product(product_name, model_number)
-        # if current_stock < quantity:
-        #     return False, f"库存不足，当前库存: {current_stock}"
-            
-        return data_manager.add_transaction(product_name, model_number, unit, -quantity, unit_price, insertion_date_str, notes), "出库成功"
-
+        # 出库时，我们记录的是购买方(buyer)
+        result_id = data_manager.add_transaction(product_name, model_number, unit, -quantity, unit_price, insertion_date_str, notes, buyer, seller)
+        return (True, "出库成功") if result_id else (False, "数据库操作失败")
+    
     def undo_transaction(self, transaction_id):
         """撤销一笔交易"""
         transaction = data_manager.get_transaction_by_id(transaction_id)
@@ -65,14 +70,10 @@ class InventoryManager:
     def get_all_records(self, include_undone=False):
         """获取所有交易记录 (UI显示用)"""
         return data_manager.get_all_transactions(include_undone=include_undone)
-
-    def get_records_by_date(self, year=None, month=None, day=None):
-        """按日期查询记录"""
-        return data_manager.get_transactions_by_date(year, month, day)
-        
-    def get_records_by_filter(self, name_filter=None, model_filter=None):
-        """按名称或型号查询记录"""
-        return data_manager.get_transactions_by_filter(name_filter, model_filter)
+   
+    def get_records_with_advanced_filter(self, filter_criteria: dict):
+        """调用数据层执行高级筛选"""
+        return data_manager.get_transactions_with_advanced_filter(filter_criteria)
 
     def get_product_summary_view(self):
         """获取商品汇总视图"""
@@ -104,7 +105,6 @@ class InventoryManager:
     def _format_and_save_to_excel(self, records: list, file_path: str) -> tuple[bool, str]:
         """
         【私有辅助方法】将给定的记录列表格式化并保存到Excel。
-        这是导出功能的公共部分。
         """
         if not records:
             return False, "没有可导出的记录。"
@@ -112,8 +112,6 @@ class InventoryManager:
             records_as_dicts = [dict(row) for row in records]
             df = pd.DataFrame(records_as_dicts)
 
-            # <<< 关键修正：将所有 NaN 值替换为空字符串 '' >>>
-            # 这可以防止空的'备注'列在Excel中显示为 "nan"
             df.fillna('', inplace=True)
 
             # --- 数据格式化 ---
@@ -132,17 +130,18 @@ class InventoryManager:
                 'unit_price': '单价',
                 'total_amount': '总金额',
                 'notes': '备注',
-                'transaction_time': '记录时间'
+                'transaction_time': '记录时间',
+                'buyer': '购买方',
+                'seller': '销售方'
             })
             export_columns = [
-                'ID', '操作日期', '项目名称', '规格型号', '单位', '类型',
+                'ID', '操作日期', '项目名称', '规格型号', '购买方', '销售方', '单位', '类型',
                 '数量', '单价', '总金额', '状态', '备注', '记录时间'
             ]
             
             export_columns_exist = [col for col in export_columns if col in df_to_export.columns]
             df_to_export = df_to_export[export_columns_exist]
             
-            # --- 保存文件 ---
             df_to_export.to_excel(file_path, index=False, engine='openpyxl')
             return True, f"成功导出 {len(df)} 条记录到 {file_path}"
 
@@ -165,10 +164,9 @@ class InventoryManager:
     def import_from_excel(self, file_path: str) -> tuple[bool, str]:
         """从 Excel 文件导入交易记录。"""
         try:
-            df = pd.read_excel(file_path)
+            df = pd.read_excel(file_path).fillna('')
 
-            # --- 验证 Excel 文件格式 ---
-            required_columns = ['项目名称', '规格型号', '类型', '数量', '单价']
+            required_columns = ['项目名称', '规格型号', '类型', '数量', '单价', '操作日期']
             for col in required_columns:
                 if col not in df.columns:
                     return False, f"导入失败：Excel文件中缺少必需的列 '{col}'。"
@@ -177,29 +175,25 @@ class InventoryManager:
             fail_count = 0
             error_messages = []
 
-            # 获取当前时间作为操作时间
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            insertion_date = datetime.now().strftime('%Y-%m-%d')
-
-            # --- 逐行处理数据 ---
             for index, row in df.iterrows():
                 try:
-                    # 提取数据
                     product_name = str(row['项目名称']).strip()
                     model_number = str(row['规格型号']).strip()
                     trans_type = str(row['类型']).strip()
                     quantity = int(row['数量'])
                     unit_price = float(row['单价'])
                     
-                    unit = str(row.get('单位', '个')).strip() # 单位是可选的
-                    # 先获取'备注'列的值
-                    notes_value = row.get('备注') # 使用 .get() 来安全地处理列不存在的情况
-
-                    # 使用 pd.isna() 判断是否为 NaN，如果是，则设置为空字符串
-                    if pd.isna(notes_value):
-                        notes = ''
-                    else:
-                        notes = str(notes_value).strip()
+                    try:
+                        insertion_date = pd.to_datetime(row['操作日期']).strftime('%Y-%m-%d')
+                    except (ValueError, TypeError):
+                        fail_count += 1
+                        error_messages.append(f"行 {index+2}: '操作日期'格式无效 ({row['操作日期']})")
+                        continue
+                        
+                    unit = str(row.get('单位', '')).strip()
+                    notes = str(row.get('备注', '')).strip()
+                    buyer = str(row.get('购买方', '')).strip()
+                    seller = str(row.get('销售方', '')).strip()
 
                     if not all([product_name, model_number, trans_type]):
                         fail_count += 1
@@ -211,29 +205,26 @@ class InventoryManager:
                         error_messages.append(f"行 {index+2}: 数量必须为正数。")
                         continue
 
-                    # 根据类型调用不同的记录方法
                     if trans_type == "入库":
-                        self.record_inbound(product_name, model_number, unit, quantity, unit_price, insertion_date, notes)
+                        self.record_inbound(product_name, model_number, unit, quantity, unit_price, insertion_date, notes, buyer=buyer, seller=seller)
                     elif trans_type == "出库":
-                        self.record_outbound(product_name, model_number, unit, quantity, unit_price, insertion_date, notes)
+                        self.record_outbound(product_name, model_number, unit, quantity, unit_price, insertion_date, notes, buyer=buyer, seller=seller)
                     else:
                         fail_count += 1
                         error_messages.append(f"行 {index+2}: 类型 '{trans_type}' 无效，应为'入库'或'出库'。")
                         continue
                     
                     success_count += 1
-
                 except (ValueError, TypeError) as e:
                     fail_count += 1
                     error_messages.append(f"行 {index+2}: 数据格式错误 - {e}")
                     continue
 
             if fail_count > 0:
-                summary = f"导入完成。成功: {success_count}, 失败: {fail_count}。\n\n错误详情:\n" + "\n".join(error_messages[:5]) # 最多显示前5条错误
+                summary = f"导入完成。成功: {success_count}, 失败: {fail_count}。\n\n错误详情:\n" + "\n".join(error_messages[:5])
                 return False, summary
             else:
                 return True, f"成功导入 {success_count} 条记录。"
-
         except Exception as e:
             return False, f"导入失败: {e}"
         

@@ -30,29 +30,28 @@ def initialize_database():
         unit_price REAL NOT NULL,
         total_amount REAL NOT NULL, -- quantity * unit_price (绝对值)
         is_undone BOOLEAN DEFAULT 0, -- 0: 有效, 1: 已撤销
-        notes TEXT DEFAULT ''
+        notes TEXT DEFAULT '',
+        buyer TEXT DEFAULT '',      -- <<< 新增字段：购买方
+        seller TEXT DEFAULT ''     -- <<< 新增字段：销售方
     )
     """)
     conn.commit()
     conn.close()
 
-def add_transaction(product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes=""):
+def add_transaction(product_name, model_number, unit, quantity, unit_price, insertion_date_str, notes="", buyer="", seller=""):
     """
-    添加一条交易记录 (入库或出库)
+    添加一条交易记录 (已更新，包含购买方和销售方)
     :param quantity: 正数表示入库，负数表示出库
     :param insertion_date_str: 'YYYY-MM-DD' 格式的字符串
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 将字符串日期转换为 date 对象存储，如果数据库支持 DATE 类型并正确处理
-        # 为简化，这里直接存字符串，查询时也用字符串比较或转换
-        # datetime.strptime(insertion_date_str, '%Y-%m-%d').date()
         total_amount = abs(quantity) * unit_price
         cursor.execute("""
-        INSERT INTO transactions (insertion_date, product_name, model_number, unit, quantity, unit_price, total_amount, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (insertion_date_str, product_name, model_number, unit, quantity, unit_price, total_amount, notes))
+        INSERT INTO transactions (insertion_date, product_name, model_number, unit, quantity, unit_price, total_amount, notes, buyer, seller)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (insertion_date_str, product_name, model_number, unit, quantity, unit_price, total_amount, notes, buyer, seller))
         conn.commit()
         return cursor.lastrowid
     except sqlite3.Error as e:
@@ -60,24 +59,6 @@ def add_transaction(product_name, model_number, unit, quantity, unit_price, inse
         return None
     finally:
         conn.close()
-
-# def get_all_transactions(include_undone=False, sort_by_date_desc=True):
-#     """获取所有交易记录"""
-#     conn = get_db_connection()
-#     cursor = conn.cursor()
-#     query = "SELECT * FROM transactions"
-#     if not include_undone:
-#         query += " WHERE is_undone = 0"
-    
-#     if sort_by_date_desc:
-#         query += " ORDER BY insertion_date DESC, transaction_time DESC"
-#     else:
-#         query += " ORDER BY insertion_date ASC, transaction_time ASC"
-        
-#     cursor.execute(query)
-#     transactions = cursor.fetchall()
-#     conn.close()
-#     return transactions
 
 def get_all_transactions(include_undone=False, sort_desc=True):
     """
@@ -95,7 +76,7 @@ def get_all_transactions(include_undone=False, sort_desc=True):
     if not include_undone:
         query += " WHERE is_undone = 0"
     
-    # 【核心修改】将排序逻辑改为基于 id
+    # 排序逻辑基于 id
     if sort_desc:
         # 按 id 降序排序 (例如: 10, 9, 8, ...)
         query += " ORDER BY id DESC"
@@ -169,27 +150,54 @@ def get_transactions_by_date(year=None, month=None, day=None):
     conn.close()
     return transactions
 
-def get_transactions_by_filter(name_filter=None, model_filter=None):
-    """按项目名称或规格型号筛选交易记录 (未撤销的)"""
+def get_transactions_with_advanced_filter(filter_criteria: dict):
+    """
+    【新增】根据一个复杂的条件字典来动态构建查询
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
-    conditions = ["is_undone = 0"]
+    
+    query_parts = ["1=1"]  # 使用 1=1 作为基础，方便后面 AND 连接
     params = []
 
-    if name_filter:
-        conditions.append("product_name LIKE ?")
-        params.append(f"%{name_filter}%")
-    if model_filter:
-        conditions.append("model_number LIKE ?")
-        params.append(f"%{model_filter}%")
+    if filter_criteria.get("product_name"):
+        query_parts.append("product_name LIKE ?")
+        params.append(f"%{filter_criteria['product_name']}%")
+    
+    if filter_criteria.get("model_number"):
+        query_parts.append("model_number LIKE ?")
+        params.append(f"%{filter_criteria['model_number']}%")
 
-    if len(conditions) == 1: # 只有 is_undone = 0
-        query = "SELECT * FROM transactions WHERE is_undone = 0 ORDER BY insertion_date DESC, transaction_time DESC"
-    else:
-        query = "SELECT * FROM transactions WHERE " + " AND ".join(conditions) + " ORDER BY insertion_date DESC, transaction_time DESC"
+    if filter_criteria.get("buyer"):
+        query_parts.append("buyer LIKE ?")
+        params.append(f"%{filter_criteria['buyer']}%")
+
+    if filter_criteria.get("seller"):
+        query_parts.append("seller LIKE ?")
+        params.append(f"%{filter_criteria['seller']}%")
+        
+    # 交易类型筛选
+    trans_type = filter_criteria.get("transaction_type")
+    if trans_type == "入库":
+        query_parts.append("quantity > 0")
+    elif trans_type == "出库":
+        query_parts.append("quantity < 0")
+    # 如果是 "全部"，则不添加此条件
+
+    # 时间段筛选
+    start_date = filter_criteria.get("start_date")
+    end_date = filter_criteria.get("end_date")
+    if start_date:
+        query_parts.append("insertion_date >= ?")
+        params.append(start_date)
+    if end_date:
+        query_parts.append("insertion_date <= ?")
+        params.append(end_date)
+        
+    query = "SELECT * FROM transactions WHERE " + " AND ".join(query_parts) + " ORDER BY insertion_date DESC, transaction_time DESC"
     
     cursor.execute(query, params)
-    transactions = cursor.fetchall()
+    transactions = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return transactions
 
@@ -219,16 +227,7 @@ def get_product_summary():
     """获取单个种类商品的总体情况 (当前库存)"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    # 只统计未撤销的交易
-    # cursor.execute("""
-    # SELECT product_name, model_number, unit, SUM(quantity) as current_stock
-    # FROM transactions
-    # WHERE is_undone = 0
-    # GROUP BY product_name, model_number, unit
-    # HAVING current_stock != 0 -- 可以只显示有库存的
-    # ORDER BY product_name, model_number
-    # """)
-
+    
     # 这里不使用 HAVING，因为我们希望显示所有商品，即使当前库存为0
     # group by 语句可能要进行修改，因为product_name 和 unit 可能会有多个名称
     cursor.execute("""
