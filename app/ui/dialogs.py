@@ -4,34 +4,67 @@ from datetime import datetime
 import tkinter.messagebox as tkmb # For simple pop-up messages
 
 class SettingsDialog(ctk.CTkToplevel):
-    """【全新】用于设置公司名称的对话框"""
-    def __init__(self, parent, current_name=""):
+    """【已更新】用于统一设置公司名称、UI缩放基准和表格微调系数的对话框"""
+    def __init__(self, parent, current_name: str, current_scale: int, current_ttk_adjustment: float):
         super().__init__(parent)
         self.transient(parent)
-        self.title("设置")
-        self.geometry("400x180")
+        self.title("系统设置")
+        self.geometry("500x450")
+        
         self.result = None
+
+        label_font = ("Microsoft YaHei UI", 14)
 
         main_frame = ctk.CTkFrame(self)
         main_frame.pack(padx=20, pady=20, fill="both", expand=True)
 
-        ctk.CTkLabel(main_frame, text="本公司名称:").pack(padx=10, pady=(5, 5), anchor="w")
-        self.entry_company_name = ctk.CTkEntry(main_frame, placeholder_text="请输入本公司名称...")
+        # --- 公司名称设置 ---
+        ctk.CTkLabel(main_frame, text="本公司名称:", font=label_font).pack(padx=10, pady=(10, 5), anchor="w")
+        self.entry_company_name = ctk.CTkEntry(main_frame, placeholder_text="请输入本公司名称...", font=label_font)
         self.entry_company_name.insert(0, current_name)
         self.entry_company_name.pack(padx=10, pady=5, fill="x")
 
-        btn_save = ctk.CTkButton(main_frame, text="保存", command=self.save_settings)
-        btn_save.pack(padx=10, pady=20)
+        # --- 界面缩放基准设置 ---
+        ctk.CTkLabel(main_frame, text="界面缩放基准:", font=label_font).pack(padx=10, pady=(20, 5), anchor="w")
+        self.scale_label_info = ctk.CTkLabel(main_frame, text=f"当前大小: {current_scale}", font=label_font)
+        self.scale_label_info.pack()
+        self.scale_slider = ctk.CTkSlider(main_frame, from_=1, to=30, number_of_steps=30, command=lambda v: self.scale_label_info.configure(text=f"当前大小: {int(v)}"))
+        self.scale_slider.set(current_scale)
+        self.scale_slider.pack(pady=10, padx=20, fill="x")
+
+        # --- 【新增】表格微调系数设置 ---
+        ctk.CTkLabel(main_frame, text="表格(ttk)微调系数:", font=label_font).pack(padx=10, pady=(20, 5), anchor="w")
+        self.ttk_adj_label = ctk.CTkLabel(main_frame, text=f"当前: {current_ttk_adjustment:.2f}x (建议 0.8-1.2)", font=label_font)
+        self.ttk_adj_label.pack()
+        self.ttk_adj_slider = ctk.CTkSlider(main_frame, from_=0.7, to=1.5, number_of_steps=80, command=lambda v: self.ttk_adj_label.configure(text=f"当前: {v:.2f}x"))
+        self.ttk_adj_slider.set(current_ttk_adjustment)
+        self.ttk_adj_slider.pack(pady=10, padx=20, fill="x")
+
+        # --- 按钮 ---
+        button_frame = ctk.CTkFrame(main_frame)
+        button_frame.pack(pady=30, side="bottom")
+        ctk.CTkButton(button_frame, text="保存并应用", command=self.apply_settings, font=(label_font[0], label_font[1], "bold")).pack(side="left", padx=10)
+        ctk.CTkButton(button_frame, text="取消", command=self.cancel, fg_color="gray", font=(label_font[0], label_font[1], "bold")).pack(side="left", padx=10)
 
         self.grab_set()
         self.lift()
-        self.entry_company_name.focus_set()
 
-    def save_settings(self):
-        self.result = self.entry_company_name.get().strip()
+    def apply_settings(self):
+        """用户点击保存，打包返回所有设置"""
+        self.result = {
+            "company_name": self.entry_company_name.get().strip(),
+            "ui_scale": int(self.scale_slider.get()),
+            "ttk_scale_adjustment": self.ttk_adj_slider.get() # 新增返回值
+        }
         self.destroy()
 
-    def get_new_name(self):
+    def cancel(self):
+        """用户点击取消，不返回任何数据"""
+        self.result = None
+        self.destroy()
+
+    def get_settings(self):
+        """主窗口调用此方法来获取设置结果"""
         self.wait_window(self)
         return self.result
 

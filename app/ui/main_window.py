@@ -8,6 +8,12 @@ from app.core.inventory import InventoryManager
 from app.core import config_manager
 from datetime import datetime
 import tkinter as tk
+import ctypes
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except AttributeError:
+    ctypes.windll.user32.SetProcessDPIAware()
 
 class MainWindow(ctk.CTk):
 
@@ -17,174 +23,151 @@ class MainWindow(ctk.CTk):
         self.inventory_manager = inventory_manager
         self.active_filters = {}
         self.company_name = config_manager.load_company_name()
+        # --- 加载配置 ---
+        self.company_name = config_manager.load_company_name()
+        self.base_size = config_manager.load_ui_scale()
+        self.ttk_scale_adjustment = config_manager.load_ttk_scale_adjustment()
+        # --- 【核心】在初始化时获取一次系统缩放因子 ---
+        self.scale_factor = ctk.ScalingTracker.get_window_scaling(self)
+        ctk.set_widget_scaling(self.scale_factor)
+
+
         self.title(f"商品管理系统 - {self.company_name}" if self.company_name else "商品管理系统")
 
-        # --- 【所有尺寸都基于 base_size 派生】 ---
-        # 只需修改下面这个变量，就能统一调整所有UI元素的大小
-        base_size = 8
-
-        # --- 自动DPI缩放 (负责适配不同显示器的系统缩放) ---
-        ctk.set_widget_scaling(ctk.ScalingTracker.get_window_scaling(self))
-        ctk.set_window_scaling(ctk.ScalingTracker.get_window_scaling(self))
-        scale_factor = ctk.ScalingTracker.get_window_scaling(self)
-
-        
         self.state('zoomed')
-        self.minsize(800, 500) # 将最小尺寸调大一点以适应更大的基础尺寸
+        self.minsize(1024, 600)
 
-        
-        font_style = "Microsoft YaHei UI"
-        
-        # 1. CustomTkinter 控件的字体 (使用基础尺寸)
-        label_font = (font_style, base_size)
-        entry_font = (font_style, base_size)
-        button_font = (font_style, base_size, "bold")
-        
-        # 2. ttk.Treeview 的字体 (基础尺寸 * 系统缩放因子)
-        treeview_font_size = int(base_size * scale_factor)
-        treeview_font = (font_style, treeview_font_size)
-        heading_font = (font_style, int((base_size - 1) * scale_factor), 'bold') # 标题字可以略小
-
-        # 3. ttk.Treeview 的行高 (基于字体大小计算，再乘以系统缩放因子)
-        # 经验法则：行高通常是字体大小的 1.8 到 2 倍
-        treeview_rowheight = int(base_size * 1.6 * scale_factor)
-
-        # 4. 固定宽度按钮的宽度 (也基于基础尺寸计算)
-        search_button_width = int(base_size * 2.0)
-        date_button_width = int(base_size * 2.0)
-
-        # 控制顶部操作按钮的尺寸
-        action_button_height = int(base_size * 2.5)
-        action_button_width = int(base_size * 4.5) # 给一个统一的宽度，确保最长的文字也能放下
-
-        # 5. 【控制所有填充/间距 (Padding)】
-        # 定义几个标准的基础间距值
-        pad_small_base = 3
-        pad_standard_base = 5
-        pad_large_base = 10
-        # 根据系统缩放因子计算出最终使用的间距
-        pad_s = int(pad_small_base * scale_factor * 0.8)
-        pad_m = int(pad_standard_base * scale_factor * 0.4)
-        pad_l = int(pad_large_base * scale_factor * 0.4)
-
-        btn_kwargs = {"font": button_font, "width": action_button_width, "height": action_button_height}
-
-        
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
-        self.main_frame = ctk.CTkFrame(self)
-        self.main_frame.pack(fill="both", expand=True, padx=pad_l, pady=pad_l)
-        self.top_frame = ctk.CTkFrame(self.main_frame)
-        self.top_frame.pack(fill="x", pady=(0, pad_l))
-        self.middle_frame = ctk.CTkFrame(self.main_frame)
-        self.middle_frame.pack(fill="both", expand=True)
-        self.bottom_frame = ctk.CTkFrame(self.main_frame)
-        self.bottom_frame.pack(fill="x", pady=(pad_l, 0))
-
-      
-        self.top_frame.grid_columnconfigure(1, weight=1)
-        action_button_frame = ctk.CTkFrame(self.top_frame)
-        action_button_frame.grid(row=0, column=0, padx=(0, pad_l), pady=pad_m, sticky="w")
-
-        # --- 新增：创建菜单栏 ---
-        self.menu_bar = tk.Menu(self)
-        self.config(menu=self.menu_bar)
-        
-        file_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="文件", menu=file_menu)
-        file_menu.add_command(label="设置...", command=self.open_settings_dialog)
-        file_menu.add_separator()
-        file_menu.add_command(label="退出", command=self.quit)
-
-        # 所有按钮都使用统一的 button_font
-        # 为所有按钮应用统一、可控的尺寸
-        self.btn_inbound = ctk.CTkButton(action_button_frame, text="商品入库", command=self.open_inbound_dialog, font=button_font, 
-                                        width=action_button_width, height=action_button_height)
-        self.btn_inbound.pack(side="left", padx=pad_m)
-
-        self.btn_outbound = ctk.CTkButton(action_button_frame, text="商品出库", command=self.open_outbound_dialog, font=button_font, 
-                                        width=action_button_width, height=action_button_height)
-        self.btn_outbound.pack(side="left", padx=pad_m)
-
-        self.btn_import_excel = ctk.CTkButton(action_button_frame, text="导入Excel", command=self.import_from_excel_dialog, font=button_font, 
-                                            fg_color="green", hover_color="#006400", 
-                                            width=action_button_width, height=action_button_height)
-        self.btn_import_excel.pack(side="left", padx=pad_m)
-
-        self.btn_export_excel = ctk.CTkButton(action_button_frame, text="导出Excel", command=self.export_to_excel_dialog, font=button_font, 
-                                            fg_color="#005792", hover_color="#003961", 
-                                            width=action_button_width, height=action_button_height)
-        self.btn_export_excel.pack(side="left", padx=pad_m)
-
-        self.btn_export_selected = ctk.CTkButton(action_button_frame, text="导出选中", command=self.export_selected_dialog, font=button_font, 
-                                                fg_color="#C05A00", hover_color="#8C4000", 
-                                                width=action_button_width, height=action_button_height)
-        self.btn_export_selected.pack(side="left", padx=pad_m)
-
-        self.btn_show_summary = ctk.CTkButton(action_button_frame, text="库存汇总", command=self.show_product_summary, font=button_font, 
-                                            width=action_button_width, height=action_button_height)
-        self.btn_show_summary.pack(side="left", padx=pad_m)
-        
-        self.btn_show_all_transactions = ctk.CTkButton(action_button_frame, text="全部记录", command=self.load_all_transactions_view, font=button_font, 
-                                                        width=action_button_width, height=action_button_height)
-        self.btn_show_all_transactions.pack(side="left", padx=pad_m)
-
-        
-
-        # --- 高级筛选UI ---
-        advanced_filter_frame = ctk.CTkFrame(self.top_frame)
-        advanced_filter_frame.grid(row=0, column=1, padx=pad_m, pady=pad_m, sticky="e") # 使用 grid 并靠右对齐
-
-        self.btn_advanced_filter = ctk.CTkButton(advanced_filter_frame, text="高级筛选...", command=self.open_advanced_filter_dialog, **btn_kwargs)
-        self.btn_advanced_filter.pack(side="left", padx=pad_m)
-        self.btn_clear_filter = ctk.CTkButton(advanced_filter_frame, text="清除筛选", command=self.clear_all_filters, fg_color="gray", **btn_kwargs)
-        self.btn_clear_filter.pack(side="left", padx=pad_m)
-
-        # --- Treeview 设置 ---
-        self.tree_style = ttk.Style()
-        self.tree_style.theme_use("default")
-        
-        # Treeview 样式配置使用上面计算好的变量
-        heading_bg = "#565B5E"
-        even_row_bg = "#303437"
-        text_color = "#DCE4EE"
-        if ctk.get_appearance_mode().lower() == "light":
-            heading_bg = "#E5E5E5"
-            even_row_bg = "#F0F0F0"
-            text_color = "#1A1A1A"
-        
-        self.tree_style.configure("Treeview.Heading", font=heading_font, background=heading_bg, foreground=text_color, relief="flat")
-        self.tree_style.map("Treeview.Heading", background=[('active', '#4A4D50')])
-        self.tree_style.configure("Treeview", background=even_row_bg, fieldbackground=even_row_bg, foreground=text_color, rowheight=treeview_rowheight, font=treeview_font)
-        self.tree_style.map('Treeview', background=[('selected', '#2C74B3')])
-
-        self.tree = ttk.Treeview(self.middle_frame, style="Treeview")
-        self.tree.pack(side="left", fill="both", expand=True)
-
-        self.scrollbar_y = ctk.CTkScrollbar(self.middle_frame, command=self.tree.yview)
-        self.scrollbar_y.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=self.scrollbar_y.set)
-        self.scrollbar_x = ctk.CTkScrollbar(self.middle_frame, command=self.tree.xview, orientation="horizontal")
-        self.scrollbar_x.pack(side="bottom", fill="x")
-        self.tree.configure(xscrollcommand=self.scrollbar_x.set)
-
-        self.tree.bind("<Double-1>", self.on_double_click_item)
-        self.tree.bind("<Button-3>", self.show_context_menu)
-        
-        self.context_menu = ctk.CTkFrame(self, border_width=1)
-        
-        self.status_label = ctk.CTkLabel(self.bottom_frame, text="状态: 就绪", anchor="w", font=label_font)
-        self.status_label.pack(side="left", padx=pad_l, pady=pad_m)
-        self.selected_total_label = ctk.CTkLabel(self.bottom_frame, text="选中总金额: 0.00", anchor="e", font=label_font)
-        self.selected_total_label.pack(side="right", padx=pad_l, pady=pad_m)
-        
-        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
-        
+        # --- 【第1步：构建UI骨架】 ---
+        self._create_widgets()
+        # --- 【第2步：应用样式和尺寸】 ---
+        self._apply_styles()
+        # --- 【第3步：加载初始数据】 ---
         self.current_view_mode = "transactions"
         self.setup_transactions_view()
         self.load_all_transactions_view()
 
+        
+
+    def _create_widgets(self):
+        """创建所有的UI控件骨架，但不设置尺寸和样式"""
+        # 菜单栏
+        self.menu_bar = tk.Menu(self)
+        self.config(menu=self.menu_bar)
+        self.file_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="文件", menu=self.file_menu)
+        self.file_menu.add_command(label="系统设置...", command=self.open_settings_dialog)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="退出", command=self.quit)
+        
+        # 布局框架
+        self.main_frame = ctk.CTkFrame(self)
+        self.top_frame = ctk.CTkFrame(self.main_frame)
+        self.middle_frame = ctk.CTkFrame(self.main_frame)
+        self.bottom_frame = ctk.CTkFrame(self.main_frame)
+        
+        # 顶部控件
+        self.action_button_frame = ctk.CTkFrame(self.top_frame)
+        self.advanced_filter_frame = ctk.CTkFrame(self.top_frame)
+        
+        self.btn_inbound = ctk.CTkButton(self.action_button_frame, text="商品入库", command=self.open_inbound_dialog)
+        self.btn_outbound = ctk.CTkButton(self.action_button_frame, text="商品出库", command=self.open_outbound_dialog)
+        self.btn_import_excel = ctk.CTkButton(self.action_button_frame, text="导入Excel", fg_color="green", hover_color="#006400", command=self.import_from_excel_dialog)
+        self.btn_export_excel = ctk.CTkButton(self.action_button_frame, text="导出Excel", fg_color="#005792", hover_color="#003961", command=self.export_to_excel_dialog)
+        self.btn_export_selected = ctk.CTkButton(self.action_button_frame, text="导出选中", fg_color="#C05A00", hover_color="#8C4000", command=self.export_selected_dialog)
+        self.btn_show_summary = ctk.CTkButton(self.action_button_frame, text="库存汇总", command=self.show_product_summary)
+        self.btn_show_all_transactions = ctk.CTkButton(self.action_button_frame, text="全部记录", command=self.load_all_transactions_view)
+        
+        self.btn_advanced_filter = ctk.CTkButton(self.advanced_filter_frame, text="高级筛选...", command=self.open_advanced_filter_dialog)
+        self.btn_clear_filter = ctk.CTkButton(self.advanced_filter_frame, text="清除筛选", command=self.clear_all_filters, fg_color="gray")
+        
+        # Treeview
+        self.tree_style = ttk.Style()
+        # <<< 关键修正：在创建 Treeview 时，必须添加 show="headings" 选项 >>>
+        self.tree = ttk.Treeview(self.middle_frame, show="headings") 
+        self.scrollbar_y = ctk.CTkScrollbar(self.middle_frame, command=self.tree.yview)
+        self.scrollbar_x = ctk.CTkScrollbar(self.middle_frame, command=self.tree.xview, orientation="horizontal")
+        self.tree.configure(yscrollcommand=self.scrollbar_y.set, xscrollcommand=self.scrollbar_x.set)
+        
+        # 底部状态栏
+        self.status_label = ctk.CTkLabel(self.bottom_frame, text="状态: 就绪", anchor="w")
+        self.selected_total_label = ctk.CTkLabel(self.bottom_frame, text="选中总金额: 0.00", anchor="e")
+
+        # 绑定事件
+        self.tree.bind("<Button-3>", self.show_context_menu)
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        
+        self.context_menu = ctk.CTkFrame(self, border_width=1)
+
+    def _apply_styles(self):
+        """【核心】根据 base_size 和两个缩放因子计算并应用所有UI尺寸和样式"""
+        font_style = "Microsoft YaHei UI"
+        # self.ttk_scale_adjustment = 1
+        
+        # 1. CTkinter控件的样式，只受 base_size 影响
+        base_style_size = self.base_size
+        label_font = (font_style, base_style_size)
+        button_font = (font_style, base_style_size, "bold")
+        action_button_height = int(base_style_size * 2.5)
+        action_button_width = int(base_style_size * 6.5)
+
+        # 2. ttk 部件的最终缩放因子 = 系统DPI因子 * 用户微调系数
+        final_ttk_scale = self.scale_factor * self.ttk_scale_adjustment
+
+        # 3. ttk 部件的尺寸和字体使用 final_ttk_scale
+        menu_font = (font_style, int(base_style_size * 0.8))
+        treeview_font_size = int(base_style_size * 0.9 * final_ttk_scale)
+        treeview_font = (font_style, treeview_font_size)
+        heading_font_size = int((base_style_size - 1) * 0.9 * final_ttk_scale)
+        heading_font = (font_style, heading_font_size, 'bold')
+        treeview_rowheight = int(base_style_size * 2.5 * final_ttk_scale) 
+        
+        # 4. 间距也最好进行缩放
+        pad_m = int(5 * self.scale_factor)
+        pad_l = int(10 * self.scale_factor)
+        
+        # 应用布局
+        self.main_frame.pack(fill="both", expand=True, padx=pad_l, pady=pad_l)
+        self.top_frame.pack(fill="x", pady=(0, pad_l))
+        self.top_frame.grid_columnconfigure(1, weight=1)
+        self.middle_frame.pack(fill="both", expand=True)
+        self.bottom_frame.pack(fill="x", pady=(pad_l, 0))
+        
+        self.action_button_frame.grid(row=0, column=0, padx=(0, pad_l), pady=pad_m, sticky="w")
+        self.advanced_filter_frame.grid(row=0, column=1, padx=pad_m, pady=pad_m, sticky="e")
+
+        # 应用菜单样式
+        self.file_menu.configure(font=menu_font)
+        
+        # 应用按钮样式
+        btn_kwargs = {"font": button_font, "width": action_button_width, "height": action_button_height}
+        all_buttons = [
+            self.btn_inbound, self.btn_outbound, self.btn_import_excel, self.btn_export_excel, 
+            self.btn_export_selected, self.btn_show_summary, self.btn_show_all_transactions,
+            self.btn_advanced_filter, self.btn_clear_filter
+        ]
+        for btn in all_buttons:
+            btn.configure(**btn_kwargs)
+            btn.pack(side="left", padx=pad_m)
+
+        # 应用Treeview样式
+        self.tree_style.theme_use("default")
+        self.tree_style.configure("Treeview.Heading", font=heading_font)
+        self.tree_style.configure("Treeview", rowheight=treeview_rowheight, font=treeview_font)
+        self.tree.configure(style="Treeview")
+        
+        # <<< 关键修正：正确的滚动条和Treeview布局顺序 >>>
+        self.scrollbar_y.pack(side="right", fill="y")
+        self.scrollbar_x.pack(side="bottom", fill="x")
+        self.tree.pack(side="left", fill="both", expand=True) 
+        
+        # 应用底部状态栏样式
+        self.status_label.configure(font=label_font)
+        self.selected_total_label.configure(font=label_font)
+        self.status_label.pack(side="left", padx=pad_l, pady=pad_m)
+        self.selected_total_label.pack(side="right", padx=pad_l, pady=pad_m)
 
     def setup_transactions_view(self):
         self.current_view_mode = "transactions"
@@ -250,7 +233,7 @@ class MainWindow(ctk.CTk):
                     row_dict['model_number'], row_dict.get('buyer', ''), row_dict.get('seller', ''),
                     row_dict['unit'], trans_type, abs(row_dict['quantity']),
                     f"{row_dict['unit_price']:.2f}", f"{row_dict['total_amount']:.2f}",
-                    status, row_dict['notes'], row_dict['transaction_time']
+                    
                 )
                 self.tree.insert(parent='', index='end', iid=row_dict['id'], text="", values=values)
                 if row_dict['is_undone']:
@@ -282,15 +265,32 @@ class MainWindow(ctk.CTk):
         self.status_label.configure(text="状态: 显示库存汇总")
 
     def open_settings_dialog(self):
-        """打开设置对话框"""
-        dialog = SettingsDialog(self, current_name=self.company_name)
-        new_name = dialog.get_new_name()
+        """打开统一的设置对话框"""
+        dialog = SettingsDialog(self, current_name=self.company_name, current_scale=self.base_size, current_ttk_adjustment=self.ttk_scale_adjustment)
+        settings = dialog.get_settings()
 
-        if new_name is not None: # 仅当用户点击保存时才执行
-            config_manager.save_company_name(new_name)
-            self.company_name = new_name
-            self.title(f"商品管理系统 - {self.company_name}" if self.company_name else "商品管理系统")
-            tkmb.showinfo("成功", "公司名称已保存。", parent=self)
+        if settings is not None:
+            # 保存公司名称
+            new_name = settings['company_name']
+            if new_name != self.company_name:
+                self.company_name = new_name
+                config_manager.save_company_name(new_name)
+                self.title(f"商品管理系统 - {self.company_name}" if self.company_name else "商品管理系统")
+
+            # 保存并应用UI缩放
+            new_scale = settings['ui_scale']
+            if new_scale != self.base_size:
+                self.base_size = new_scale
+                config_manager.save_ui_scale(new_scale)
+                self._apply_styles()
+            
+            new_ttk_scale_adjustment = settings['ttk_scale_adjustment']
+            if new_ttk_scale_adjustment != self.ttk_scale_adjustment:
+                self.ttk_scale_adjustment = new_ttk_scale_adjustment
+                config_manager.save_ttk_scale_adjustment(new_ttk_scale_adjustment)
+                self._apply_styles()
+
+            tkmb.showinfo("成功", "设置已保存。", parent=self)
 
     def open_inbound_dialog(self):
         dialog = TransactionDialog(self, title="商品入库", transaction_type="入库", company_name=self.company_name)
