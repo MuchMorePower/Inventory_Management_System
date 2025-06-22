@@ -14,16 +14,21 @@
 inventory-management/
 ├── database/
 │   └── inventory.db       # SQLite 数据库文件，由程序自动生成和管理
+├── config/
+│   └── settings.json      # 配置文件，用于保存公司名称和UI设置
 ├── app/
 │   ├── core/
-│   │   ├── __init__.py      # 包初始化文件，使core成为一个Python包
+│   │   ├── __init__.py      # 包初始化文件
+│   │   ├── config_manager.py# 【配置层】负责读写settings.json配置文件
 │   │   ├── data_manager.py  # 【数据访问层】负责所有数据库的直接读写
 │   │   └── inventory.py     # 【业务逻辑层】负责处理所有业务规则
 │   └── ui/
-│       ├── __init__.py      # 包初始化文件，使ui成为一个Python包
+│       ├── __init__.py      # 包初始化文件
+│       ├── styles.py        # 【样式层】新增：用于管理UI样式和动态缩放
 │       ├── dialogs.py       # 【表现层-组件】定义了各种弹出的对话框
 │       └── main_window.py   # 【表现层-主视图】主窗口的UI界面与事件处理
 └── main.py                  # 【程序主入口】启动和组织整个应用
+
 ```
 
 ---
@@ -43,10 +48,24 @@ inventory-management/
 | `quantity`         | `INTEGER`       | `NOT NULL`                  | 交易数量。**正数代表入库，负数代表出库**。                |
 | `unit_price`       | `REAL`          | `NOT NULL`                  | 本次交易的商品单价。                                      |
 | `total_amount`     | `REAL`          | `NOT NULL`                  | 本次交易的总金额 (`abs(quantity) * unit_price`)。         |
-| `is_undone`        | `BOOLEAN`       | `DEFAULT 0`                 | 标记记录是否已撤销 (0: 有效, 1: 已撤销)。                 |
+| `is_undone`        | `BOOLEAN`       | `DEFAULT 0`                 | 标记记录是否已撤销 (0: 有效, 1: 已撤销)。                |
 | `notes`            | `TEXT`          | `DEFAULT ''`                | 备注信息，可选。                                          |
+| `buyer`            | `TEXT`          | `DEFAULT ''`                | 购买方（出库时录）。                          |
+| `seller`           | `TEXT`          | `DEFAULT ''`                | 销售方（入库时录）。                          |
 
----
+#### 关键更新说明：
+1. **新增字段**：
+   - `buyer`：记录商品出库时的购买方信息
+   - `seller`：记录商品入库时的销售方信息
+   
+2. **字段约束**：
+   - 所有新增字段均设置默认值为空字符串 `DEFAULT ''`
+   - 确保与旧版本数据库的兼容性（自动迁移时不会报错）
+
+3. **初始化逻辑**：
+   ```python
+   # 数据库初始化时自动创建表结构
+   initialize_database()
 
 ### 3. `main.py` (主程序入口)
 
